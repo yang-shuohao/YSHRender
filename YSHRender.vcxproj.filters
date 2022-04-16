@@ -3,4 +3,7 @@
   <ItemGroup>
     <ClCompile Include="Main\Main.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DXUtils\d3dx12.h" />
+  </ItemGroup>
 </Project>
