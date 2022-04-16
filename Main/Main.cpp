@@ -1,5 +1,4 @@
 #include<Windows.h>
-#include<iostream>
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -40,7 +39,7 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 		nullptr);
 
 	ShowWindow(hwnd, SW_SHOW);
-	UpdateWindow(hwnd);
+
 
 	MSG msg = {};
 	while (msg.message != WM_QUIT)
