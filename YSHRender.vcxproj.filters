@@ -6,4 +6,7 @@
   <ItemGroup>
     <ClInclude Include="DXUtils\d3dx12.h" />
   </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="Assets\shaders.hlsl" />
+  </ItemGroup>
 </Project>
