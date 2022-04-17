@@ -2,23 +2,23 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <wrl.h>
+
 #include<iostream>
 
 #include "../DXUtils/d3dx12.h"
 
+
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
 
 using namespace Microsoft::WRL;
-
 
 const UINT FrameCount = 2;
 UINT width = 800;
 UINT height = 600;
 HWND hwnd;
 
-// Pipeline objects.
+//管线对象
 ComPtr<IDXGISwapChain3> swapChain;
 ComPtr<ID3D12Device> device;
 ComPtr<ID3D12Resource> renderTargets[FrameCount];
@@ -29,14 +29,19 @@ ComPtr<ID3D12PipelineState> pipelineState;
 ComPtr<ID3D12GraphicsCommandList> commandList;
 UINT rtvDescriptorSize;
 
-// Synchronization objects.
+// 同步对象
 UINT frameIndex;
 HANDLE fenceEvent;
 ComPtr<ID3D12Fence> fence;
 UINT64 fenceValue;
 
+float color[4];
+bool isRAdd = true;
+bool isGAdd = true;
+bool isBAdd = true;
 
-inline std::string HrToString(HRESULT hr)
+
+std::string HrToString(HRESULT hr)
 {
 	char s_str[64] = {};
 	sprintf_s(s_str, "HRESULT of 0x%08X", static_cast<UINT>(hr));
@@ -52,7 +57,7 @@ private:
 	const HRESULT m_hr;
 };
 
-inline void ThrowIfFailed(HRESULT hr)
+void ThrowIfFailed(HRESULT hr)
 {
 	if (FAILED(hr))
 	{
@@ -60,7 +65,7 @@ inline void ThrowIfFailed(HRESULT hr)
 	}
 }
 
-IDXGIAdapter1* GetSupportedAdapter(Microsoft::WRL::ComPtr<IDXGIFactory4>& dxgiFactory,const D3D_FEATURE_LEVEL featureLevel)
+IDXGIAdapter1* GetSupportedAdapter(ComPtr<IDXGIFactory4>& dxgiFactory,const D3D_FEATURE_LEVEL featureLevel)
 {
 	IDXGIAdapter1* adapter = nullptr;
 	for (std::uint32_t adapterIndex = 0U; ; ++adapterIndex) 
@@ -171,7 +176,6 @@ void LoadPipeline()
 	}
 
 	ThrowIfFailed(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator)));
-
 }
 
 void LoadAsset()
@@ -202,7 +206,7 @@ void PopulateCommandList()
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeap->GetCPUDescriptorHandleForHeapStart(), frameIndex, rtvDescriptorSize);
 
-	const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+	float clearColor[] = { color[0],color[1],color[2],color[3] };
 	commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
 	resBarrier = CD3DX12_RESOURCE_BARRIER::Transition(renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -226,6 +230,48 @@ void WaitForPreviousFrame()
 	frameIndex = swapChain->GetCurrentBackBufferIndex();
 }
 
+void OnUpdate()
+{
+
+	if (color[0] <= 1.0f && isRAdd)
+	{
+		color[0] += 0.001f;
+		isRAdd = true;
+	}
+	else
+	{
+		color[0] -= 0.002f;
+		color[0] <= 0 ? isRAdd = true : isRAdd = false;
+		
+	}
+
+	if (color[1] <= 1.0f && isGAdd)
+	{
+		color[1] += 0.002f;
+		isGAdd = true;
+	}
+	else
+	{
+		color[1] -= 0.001f;
+		color[1] <= 0 ? isGAdd = true : isGAdd = false;
+
+	}
+
+	if (color[2] <= 1.0f && isBAdd)
+	{
+		color[2] += 0.001f;
+		isBAdd = true;
+	}
+	else
+	{
+		color[2] -= 0.001f;
+		color[2] <= 0 ? isBAdd = true : isBAdd = false;
+
+	}
+
+	color[3] = 1.0f;
+
+}
 
 void OnRender()
 {
@@ -252,6 +298,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
 	switch (message)
 	{
 	case WM_PAINT:
+		OnUpdate();
 		OnRender();
 		return 0;
 
