@@ -6,6 +6,6 @@ YSHRender是个人学习渲染技术开发的一个渲染引擎，重点在于�
 [DX12渲染引擎（一）创建项目](https://zhuanlan.zhihu.com/p/499537362)    
 [DX12渲染引擎（二）创建窗口](https://zhuanlan.zhihu.com/p/499551110)    
 [DX12渲染引擎（三）初始化Direct3D](https://zhuanlan.zhihu.com/p/499778169)    
-[DX12渲染引擎（四）渲染目标视图更新](https://zhuanlan.zhihu.com/p/500041234)    
+[DX12渲染引擎（四）背景颜色更新](https://zhuanlan.zhihu.com/p/500041234)    
 
 
