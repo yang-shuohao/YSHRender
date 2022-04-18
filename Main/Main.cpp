@@ -33,6 +33,7 @@ ComPtr<ID3D12CommandAllocator> commandAllocator;
 ComPtr<ID3D12CommandQueue> commandQueue;
 ComPtr<ID3D12RootSignature> rootSignature;
 ComPtr<ID3D12DescriptorHeap> rtvHeap;
+ComPtr<ID3D12DescriptorHeap> dsvHeap;
 ComPtr<ID3D12PipelineState> pipelineState;
 ComPtr<ID3D12GraphicsCommandList> commandList;
 UINT rtvDescriptorSize;
@@ -41,6 +42,7 @@ ComPtr<ID3D12Resource> vertexBuffer;
 D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
 ComPtr<ID3D12Resource> indexBuffer;
 D3D12_INDEX_BUFFER_VIEW indexBufferView;
+ComPtr<ID3D12Resource> depthStencilBuffer;
 
 // 同步对象
 UINT frameIndex;
@@ -182,8 +184,13 @@ void LoadPipeline()
 		rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 		rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 		ThrowIfFailed(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&rtvHeap)));
-
 		rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+		dsvHeapDesc.NumDescriptors = 1;
+		dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+		dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+		ThrowIfFailed(device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&dsvHeap)));
 	}
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeap->GetCPUDescriptorHandleForHeapStart());
@@ -236,8 +243,7 @@ void LoadAsset()
 		psoDesc.PS = CD3DX12_SHADER_BYTECODE(pixelShader.Get());
 		psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 		psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-		psoDesc.DepthStencilState.DepthEnable = FALSE;
-		psoDesc.DepthStencilState.StencilEnable = FALSE;
+		psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 		psoDesc.SampleMask = UINT_MAX;
 		psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 		psoDesc.NumRenderTargets = 1;
@@ -253,10 +259,15 @@ void LoadAsset()
 	{
 		Vertex triangleVertices[] =
 		{
-			{ { -0.5f, 0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+			{ { -0.5f, 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
 			{ { 0.5f, -0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-			{ { -0.5f, -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-			{ { 0.5f, 0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+			{ { -0.5f, -0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+			{ { 0.5f, 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+
+			{ { -0.75f, 0.75f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+			{ { 0.0f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+			{ { -0.75f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+			{ { 0.0f, 0.75f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
 		};
 
 		DWORD triangleIndexs[]
@@ -306,6 +317,31 @@ void LoadAsset()
 		indexBufferView.BufferLocation = indexBuffer->GetGPUVirtualAddress();
 		indexBufferView.Format = DXGI_FORMAT_R32_UINT;
 		indexBufferView.SizeInBytes = indexBufferSize;
+
+
+		D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
+		depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
+		depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+		D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
+		depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
+		depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
+		depthOptimizedClearValue.DepthStencil.Stencil = 0;
+
+		CD3DX12_HEAP_PROPERTIES heapProperties2 = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+		CD3DX12_RESOURCE_DESC tex2D = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
+
+		ThrowIfFailed(device->CreateCommittedResource(
+			&heapProperties2,
+			D3D12_HEAP_FLAG_NONE,
+			&tex2D,
+			D3D12_RESOURCE_STATE_DEPTH_WRITE,
+			&depthOptimizedClearValue,
+			IID_PPV_ARGS(&depthStencilBuffer)));
+
+		device->CreateDepthStencilView(depthStencilBuffer.Get(), &depthStencilDesc, dsvHeap->GetCPUDescriptorHandleForHeapStart());
+
 	}
 
 	{
@@ -334,14 +370,19 @@ void PopulateCommandList()
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeap->GetCPUDescriptorHandleForHeapStart(), frameIndex, rtvDescriptorSize);
 
-	commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(dsvHeap->GetCPUDescriptorHandleForHeapStart());
+
+	commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 
 	const float clearColor[] = { color[0], color[1], color[2], 1.0f };
 	commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+	commandList->ClearDepthStencilView(dsvHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
 	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 	commandList->IASetIndexBuffer(&indexBufferView);
 	commandList->DrawIndexedInstanced(6, 1, 0, 0,0);
+	commandList->DrawIndexedInstanced(6, 1, 0, 4, 0);
 
 	resBarrier = CD3DX12_RESOURCE_BARRIER::Transition(renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	commandList->ResourceBarrier(1, &resBarrier);
