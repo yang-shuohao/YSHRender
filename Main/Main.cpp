@@ -39,6 +39,8 @@ UINT rtvDescriptorSize;
 
 ComPtr<ID3D12Resource> vertexBuffer;
 D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
+ComPtr<ID3D12Resource> indexBuffer;
+D3D12_INDEX_BUFFER_VIEW indexBufferView;
 
 // 同步对象
 UINT frameIndex;
@@ -251,33 +253,59 @@ void LoadAsset()
 	{
 		Vertex triangleVertices[] =
 		{
-			{ { 0.0f, 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-			{ { 0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-			{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+			{ { -0.5f, 0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+			{ { 0.5f, -0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+			{ { -0.5f, -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+			{ { 0.5f, 0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f, 1.0f } }
+		};
+
+		DWORD triangleIndexs[]
+		{
+			0,1,2,
+			0,3,1
 		};
 
 		const UINT vertexBufferSize = sizeof(triangleVertices);
-
+		const UINT indexBufferSize = sizeof(triangleIndexs);
 
 		CD3DX12_HEAP_PROPERTIES heapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-		CD3DX12_RESOURCE_DESC resourceDes = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
+		CD3DX12_RESOURCE_DESC vertexResourceDes = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
+		CD3DX12_RESOURCE_DESC indexResourceDes = CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize);
+
 		ThrowIfFailed(device->CreateCommittedResource(
 			&heapProperties,
 			D3D12_HEAP_FLAG_NONE,
-			&resourceDes,
+			&vertexResourceDes,
 			D3D12_RESOURCE_STATE_GENERIC_READ,
 			nullptr,
 			IID_PPV_ARGS(&vertexBuffer)));
 
-		UINT8* pVertexDataBegin;
+		ThrowIfFailed(device->CreateCommittedResource(
+			&heapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&indexResourceDes,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&indexBuffer)));
+
+		UINT8* pDataBegin;
 		CD3DX12_RANGE readRange(0, 0); 
-		ThrowIfFailed(vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
-		memcpy(pVertexDataBegin, triangleVertices, sizeof(triangleVertices));
+
+		ThrowIfFailed(vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pDataBegin)));
+		memcpy(pDataBegin, triangleVertices, sizeof(triangleVertices));
 		vertexBuffer->Unmap(0, nullptr);
+
+		ThrowIfFailed(indexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pDataBegin)));
+		memcpy(pDataBegin, triangleIndexs, sizeof(triangleIndexs));
+		indexBuffer->Unmap(0, nullptr);
 
 		vertexBufferView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
 		vertexBufferView.StrideInBytes = sizeof(Vertex);
 		vertexBufferView.SizeInBytes = vertexBufferSize;
+
+		indexBufferView.BufferLocation = indexBuffer->GetGPUVirtualAddress();
+		indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+		indexBufferView.SizeInBytes = indexBufferSize;
 	}
 
 	{
@@ -312,7 +340,8 @@ void PopulateCommandList()
 	commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
-	commandList->DrawInstanced(3, 1, 0, 0);
+	commandList->IASetIndexBuffer(&indexBufferView);
+	commandList->DrawIndexedInstanced(6, 1, 0, 0,0);
 
 	resBarrier = CD3DX12_RESOURCE_BARRIER::Transition(renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	commandList->ResourceBarrier(1, &resBarrier);
