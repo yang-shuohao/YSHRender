@@ -18,6 +18,18 @@
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
+
+struct Vertex
+{
+	XMFLOAT3 position;
+	XMFLOAT4 color;
+};
+
+struct SceneConstantBuffer
+{
+	XMFLOAT4 offset;
+};
+
 const UINT FrameCount = 2;
 UINT width = 800;
 UINT height = 600;
@@ -34,6 +46,7 @@ ComPtr<ID3D12CommandQueue> commandQueue;
 ComPtr<ID3D12RootSignature> rootSignature;
 ComPtr<ID3D12DescriptorHeap> rtvHeap;
 ComPtr<ID3D12DescriptorHeap> dsvHeap;
+ComPtr<ID3D12DescriptorHeap> cbvHeap;
 ComPtr<ID3D12PipelineState> pipelineState;
 ComPtr<ID3D12GraphicsCommandList> commandList;
 UINT rtvDescriptorSize;
@@ -43,6 +56,9 @@ D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
 ComPtr<ID3D12Resource> indexBuffer;
 D3D12_INDEX_BUFFER_VIEW indexBufferView;
 ComPtr<ID3D12Resource> depthStencilBuffer;
+ComPtr<ID3D12Resource> constantBuffer;
+SceneConstantBuffer constantBufferData;
+UINT8* pCbvDataBegin;
 
 // 同步对象
 UINT frameIndex;
@@ -56,12 +72,23 @@ bool isGAdd = true;
 bool isBAdd = true;
 
 
-struct Vertex
+template <typename T>
+constexpr UINT CalcConstantBufferByteSize()
 {
-	XMFLOAT3 position;
-	XMFLOAT4 color;
-};
-
+	// Constant buffers must be a multiple of the minimum hardware
+	// allocation size (usually 256 bytes).  So round up to nearest
+	// multiple of 256.  We do this by adding 255 and then masking off
+	// the lower 2 bytes which store all bits < 256.
+	// Example: Suppose byteSize = 300.
+	// (300 + 255) & ~255
+	// 555 & ~255
+	// 0x022B & ~0x00ff
+	// 0x022B & 0xff00
+	// 0x0200
+	// 512
+	UINT byteSize = sizeof(T);
+	return (byteSize + 255) & ~255;
+}
 
 std::string HrToString(HRESULT hr)
 {
@@ -185,12 +212,18 @@ void LoadPipeline()
 		rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 		ThrowIfFailed(device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&rtvHeap)));
 		rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
+		//
 		D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
 		dsvHeapDesc.NumDescriptors = 1;
 		dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 		dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 		ThrowIfFailed(device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&dsvHeap)));
+		//
+		D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
+		cbvHeapDesc.NumDescriptors = 1;
+		cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+		cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+		ThrowIfFailed(device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&cbvHeap)));
 	}
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeap->GetCPUDescriptorHandleForHeapStart());
@@ -208,12 +241,34 @@ void LoadPipeline()
 void LoadAsset()
 {
 	{
-		CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-		rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+		D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+
+		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+
+		if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+		{
+			featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+		}
+
+		CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+		CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+
+		ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+		rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_VERTEX);
+
+		D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
+			D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+			D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+			D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+			D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
+			D3D12_ROOT_SIGNATURE_FLAG_DENY_PIXEL_SHADER_ROOT_ACCESS;
+
+		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+		rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
 
 		ComPtr<ID3DBlob> signature;
 		ComPtr<ID3DBlob> error;
-		ThrowIfFailed(D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
+		ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
 		ThrowIfFailed(device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&rootSignature)));
 	}
 
@@ -342,6 +397,23 @@ void LoadAsset()
 
 		device->CreateDepthStencilView(depthStencilBuffer.Get(), &depthStencilDesc, dsvHeap->GetCPUDescriptorHandleForHeapStart());
 
+		const UINT constantBufferSize = CalcConstantBufferByteSize<SceneConstantBuffer>();
+		CD3DX12_RESOURCE_DESC constantResourceDes = CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
+		ThrowIfFailed(device->CreateCommittedResource(
+			&heapProperties,
+			D3D12_HEAP_FLAG_NONE,
+			&constantResourceDes,
+			D3D12_RESOURCE_STATE_GENERIC_READ,
+			nullptr,
+			IID_PPV_ARGS(&constantBuffer)));
+
+		D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+		cbvDesc.BufferLocation = constantBuffer->GetGPUVirtualAddress();
+		cbvDesc.SizeInBytes = constantBufferSize;
+		device->CreateConstantBufferView(&cbvDesc, cbvHeap->GetCPUDescriptorHandleForHeapStart());
+
+		ThrowIfFailed(constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCbvDataBegin)));
+		memcpy(pCbvDataBegin, &constantBufferData, sizeof(constantBufferData));
 	}
 
 	{
@@ -362,6 +434,11 @@ void PopulateCommandList()
 	ThrowIfFailed(commandList->Reset(commandAllocator.Get(), pipelineState.Get()));
 
 	commandList->SetGraphicsRootSignature(rootSignature.Get());
+	ID3D12DescriptorHeap* ppHeaps[] = { cbvHeap.Get() };
+	commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
+
+	commandList->SetGraphicsRootDescriptorTable(0, cbvHeap->GetGPUDescriptorHandleForHeapStart());
+
 	commandList->RSSetViewports(1, &viewport);
 	commandList->RSSetScissorRects(1, &scissorRect);
 
@@ -443,6 +520,16 @@ void OnUpdate()
 		color[2] <= 0 ? isBAdd = true : isBAdd = false;
 
 	}
+
+	const float translationSpeed = 0.005f;
+	const float offsetBounds = 1.25f;
+
+	constantBufferData.offset.x += translationSpeed;
+	if (constantBufferData.offset.x > offsetBounds)
+	{
+		constantBufferData.offset.x = -offsetBounds;
+	}
+	memcpy(pCbvDataBegin, &constantBufferData, sizeof(constantBufferData));
 
 }
 
