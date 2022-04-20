@@ -27,7 +27,7 @@ struct Vertex
 
 struct SceneConstantBuffer
 {
-	XMFLOAT4 offset;
+	XMFLOAT4X4 MVP;
 };
 
 const UINT FrameCount = 2;
@@ -36,7 +36,7 @@ UINT height = 600;
 HWND hwnd;
 
 //管线对象
-CD3DX12_VIEWPORT viewport(0.0f,0.0f, width,height);
+CD3DX12_VIEWPORT viewport(0.0f, 0.0f, width, height);
 CD3DX12_RECT scissorRect(0, 0, width, height);
 ComPtr<IDXGISwapChain3> swapChain;
 ComPtr<ID3D12Device> device;
@@ -114,19 +114,19 @@ void ThrowIfFailed(HRESULT hr)
 	}
 }
 
-IDXGIAdapter1* GetSupportedAdapter(ComPtr<IDXGIFactory4>& dxgiFactory,const D3D_FEATURE_LEVEL featureLevel)
+IDXGIAdapter1* GetSupportedAdapter(ComPtr<IDXGIFactory4>& dxgiFactory, const D3D_FEATURE_LEVEL featureLevel)
 {
 	IDXGIAdapter1* adapter = nullptr;
-	for (std::uint32_t adapterIndex = 0U; ; ++adapterIndex) 
+	for (std::uint32_t adapterIndex = 0U; ; ++adapterIndex)
 	{
 		IDXGIAdapter1* currentAdapter = nullptr;
-		if (DXGI_ERROR_NOT_FOUND == dxgiFactory->EnumAdapters1(adapterIndex, &currentAdapter)) 
+		if (DXGI_ERROR_NOT_FOUND == dxgiFactory->EnumAdapters1(adapterIndex, &currentAdapter))
 		{
 			break;
 		}
 
-		const HRESULT hres = D3D12CreateDevice(currentAdapter,featureLevel,_uuidof(ID3D12Device),nullptr);
-		if (SUCCEEDED(hres)) 
+		const HRESULT hres = D3D12CreateDevice(currentAdapter, featureLevel, _uuidof(ID3D12Device), nullptr);
+		if (SUCCEEDED(hres))
 		{
 			adapter = currentAdapter;
 			break;
@@ -166,7 +166,7 @@ void LoadPipeline()
 	for (std::uint32_t i = 0U; i < _countof(featureLevels); ++i)
 	{
 		adapter = GetSupportedAdapter(mDxgiFactory, featureLevels[i]);
-		if (adapter != nullptr) 
+		if (adapter != nullptr)
 		{
 			break;
 		}
@@ -174,7 +174,7 @@ void LoadPipeline()
 
 	if (adapter != nullptr)
 	{
-		D3D12CreateDevice(adapter,D3D_FEATURE_LEVEL_12_1,IID_PPV_ARGS(device.GetAddressOf()));
+		D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(device.GetAddressOf()));
 	}
 
 	D3D12_COMMAND_QUEUE_DESC queueDesc = {};
@@ -194,7 +194,7 @@ void LoadPipeline()
 
 	ComPtr<IDXGISwapChain1> swapChain1;
 	ThrowIfFailed(mDxgiFactory->CreateSwapChainForHwnd(
-		commandQueue.Get(),  
+		commandQueue.Get(),
 		hwnd,
 		&swapChainDesc,
 		nullptr,
@@ -304,6 +304,7 @@ void LoadAsset()
 		psoDesc.NumRenderTargets = 1;
 		psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 		psoDesc.SampleDesc.Count = 1;
+		psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
 		ThrowIfFailed(device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState)));
 	}
 
@@ -314,21 +315,41 @@ void LoadAsset()
 	{
 		Vertex triangleVertices[] =
 		{
-			{ { -0.5f, 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-			{ { 0.5f, -0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-			{ { -0.5f, -0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-			{ { 0.5f, 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-
-			{ { -0.75f, 0.75f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-			{ { 0.0f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-			{ { -0.75f, 0.0f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-			{ { 0.0f, 0.75f, 0.7f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+			{ { -1.0f, -1.0f, -1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+			{ { -1.0f, +1.0f, -1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
+			{ { +1.0f, +1.0f, -1.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } },
+			{ { +1.0f, -1.0f, -1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+			{ { -1.0f, -1.0f, +1.0f }, { 0.0f, 0.5f, 0.5f, 1.0f } },
+			{ { -1.0f, +1.0f, +1.0f }, { 0.5f, 0.0f, 0.0f, 1.0f } },
+			{ { +1.0f, +1.0f, +1.0f }, { 0.5f, 0.5f, 0.0f, 1.0f } },
+			{ { +1.0f, -1.0f, +1.0f }, { 0.5f, 0.5f, 0.5f, 1.0f } }
 		};
 
 		DWORD triangleIndexs[]
 		{
-			0,1,2,
-			0,3,1
+			// front face
+			0, 1, 2,
+			0, 2, 3,
+
+			// back face
+			4, 6, 5,
+			4, 7, 6,
+
+			// left face
+			4, 5, 1,
+			4, 1, 0,
+
+			// right face
+			3, 2, 6,
+			3, 6, 7,
+
+			// top face
+			1, 5, 6,
+			1, 6, 2,
+
+			// bottom face
+			4, 0, 3,
+			4, 3, 7
 		};
 
 		const UINT vertexBufferSize = sizeof(triangleVertices);
@@ -355,7 +376,7 @@ void LoadAsset()
 			IID_PPV_ARGS(&indexBuffer)));
 
 		UINT8* pDataBegin;
-		CD3DX12_RANGE readRange(0, 0); 
+		CD3DX12_RANGE readRange(0, 0);
 
 		ThrowIfFailed(vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pDataBegin)));
 		memcpy(pDataBegin, triangleVertices, sizeof(triangleVertices));
@@ -458,8 +479,7 @@ void PopulateCommandList()
 	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 	commandList->IASetIndexBuffer(&indexBufferView);
-	commandList->DrawIndexedInstanced(6, 1, 0, 0,0);
-	commandList->DrawIndexedInstanced(6, 1, 0, 4, 0);
+	commandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
 
 	resBarrier = CD3DX12_RESOURCE_BARRIER::Transition(renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	commandList->ResourceBarrier(1, &resBarrier);
@@ -494,7 +514,7 @@ void OnUpdate()
 	{
 		color[0] -= 0.002f;
 		color[0] <= 0 ? isRAdd = true : isRAdd = false;
-		
+
 	}
 
 	if (color[1] <= 1.0f && isGAdd)
@@ -521,15 +541,19 @@ void OnUpdate()
 
 	}
 
-	const float translationSpeed = 0.005f;
-	const float offsetBounds = 1.25f;
+	XMVECTOR pos = XMVectorSet(0.0f, 5.0f, -5.0f, 1.0f);
+	XMVECTOR target = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
-	constantBufferData.offset.x += translationSpeed;
-	if (constantBufferData.offset.x > offsetBounds)
-	{
-		constantBufferData.offset.x = -offsetBounds;
-	}
-	memcpy(pCbvDataBegin, &constantBufferData, sizeof(constantBufferData));
+	XMMATRIX v = XMMatrixLookAtLH(pos, target, up);
+
+	XMMATRIX m = XMMatrixIdentity();
+	XMMATRIX p = XMMatrixPerspectiveFovLH(XM_PIDIV4,width/height,1.0f,1000.0f);
+	XMMATRIX MVP = m * v * p;
+
+	SceneConstantBuffer objConstants;
+	XMStoreFloat4x4(&objConstants.MVP, XMMatrixTranspose(MVP));
+	memcpy(pCbvDataBegin, &objConstants, sizeof(objConstants));
 
 }
 
