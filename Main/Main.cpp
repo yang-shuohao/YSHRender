@@ -23,13 +23,22 @@ using namespace DirectX;
 
 struct Vertex
 {
+	Vertex(float x, float y, float z,float nx,float ny,float nz, float u, float v) : position(x, y, z), normal(nx,ny,nz), texCoord(u, v) {}
 	XMFLOAT3 position;
+	XMFLOAT3 normal;
 	XMFLOAT2 texCoord;
 };
 
 struct SceneConstantBuffer
 {
+	XMFLOAT4X4 Model;
 	XMFLOAT4X4 MVP;
+	XMFLOAT3 lightColor;
+	float padding1;
+	XMFLOAT3 lightPosition;
+	float padding2;
+	XMFLOAT3 viewPosition;
+	float padding3;
 };
 
 const UINT FrameCount = 2;
@@ -68,11 +77,8 @@ HANDLE fenceEvent;
 ComPtr<ID3D12Fence> fence;
 UINT64 fenceValue;
 
-float color[3];
-bool isRAdd = true;
-bool isGAdd = true;
-bool isBAdd = true;
-
+float offset;
+bool isOffset = false;
 //
 ComPtr<ID3D12Resource> textureBuffer;
 ComPtr<ID3D12Resource> textureBufferUploadHeap;
@@ -522,7 +528,8 @@ void LoadAsset()
 		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
 		{
 			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+			{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 		};
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -549,41 +556,68 @@ void LoadAsset()
 	{
 		Vertex triangleVertices[] =
 		{
-			{ { -1.0f, -1.0f, -1.0f }, { 0.0f, 0.0f } },
-			{ { -1.0f, +1.0f, -1.0f }, { 1.0f, 1.0f } },
-			{ { +1.0f, +1.0f, -1.0f }, { 0.0f, 1.0f } },
-			{ { +1.0f, -1.0f, -1.0f }, { 1.0f, 0.0f } },
-			{ { -1.0f, -1.0f, +1.0f }, { 0.0f, 1.0f } },
-			{ { -1.0f, +1.0f, +1.0f }, { 1.0f, 0.0f } },
-			{ { +1.0f, +1.0f, +1.0f }, { 0.0f, 0.0f } },
-			{ { +1.0f, -1.0f, +1.0f }, { 1.0f, 1.0f } }
+			// front face
+			{ -0.5f,  0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f },
+			{  0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f },
+			{ -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f },
+			{  0.5f,  0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f },
+
+			// right side face
+			{  0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+			{  0.5f,  0.5f,  0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f },
+			{  0.5f, -0.5f,  0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f },
+			{  0.5f,  0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+
+			// left side face
+			{ -0.5f,  0.5f,  0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+			{ -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f },
+			{ -0.5f, -0.5f,  0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
+			{ -0.5f,  0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f },
+
+			// back face
+			{  0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f },
+			{ -0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f },
+			{  0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f },
+			{ -0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f },
+
+			// top face
+			{ -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f },
+			{  0.5f,  0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f },
+			{  0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f },
+			{ -0.5f,  0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
+
+			// bottom face
+			{  0.5f, -0.5f,  0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f },
+			{ -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f },
+			{  0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f },
+			{ -0.5f, -0.5f,  0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f },
 		};
 
 		DWORD triangleIndexs[]
 		{
 			// front face
-			0, 1, 2,
-			0, 2, 3,
+			 0, 1, 2, // first triangle
+			 0, 3, 1, // second triangle
 
-			// back face
-			4, 6, 5,
-			4, 7, 6,
+			 // left face
+			 4, 5, 6, // first triangle
+			 4, 7, 5, // second triangle
 
-			// left face
-			4, 5, 1,
-			4, 1, 0,
+			 // right face
+			 8, 9, 10, // first triangle
+			 8, 11, 9, // second triangle
 
-			// right face
-			3, 2, 6,
-			3, 6, 7,
+			 // back face
+			 12, 13, 14, // first triangle
+			 12, 15, 13, // second triangle
 
-			// top face
-			1, 5, 6,
-			1, 6, 2,
+			 // top face
+			 16, 17, 18, // first triangle
+			 16, 19, 17, // second triangle
 
-			// bottom face
-			4, 0, 3,
-			4, 3, 7
+			 // bottom face
+			 20, 21, 22, // first triangle
+			 20, 23, 21, // second triangle
 		};
 
 		const UINT vertexBufferSize = sizeof(triangleVertices);
@@ -757,7 +791,8 @@ void PopulateCommandList()
 
 	commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 
-	const float clearColor[] = { color[0], color[1], color[2], 1.0f };
+	//const float clearColor[] = { color[0], color[1], color[2], 1.0f };
+	const float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
 	commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 	commandList->ClearDepthStencilView(dsvHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
@@ -775,39 +810,15 @@ void PopulateCommandList()
 void OnUpdate()
 {
 
-	if (color[0] <= 1.0f && isRAdd)
+	if (offset <= 3.0f && isOffset)
 	{
-		color[0] += 0.001f;
-		isRAdd = true;
+		offset += 0.01f;
+		isOffset = true;
 	}
 	else
 	{
-		color[0] -= 0.002f;
-		color[0] <= 0 ? isRAdd = true : isRAdd = false;
-
-	}
-
-	if (color[1] <= 1.0f && isGAdd)
-	{
-		color[1] += 0.002f;
-		isGAdd = true;
-	}
-	else
-	{
-		color[1] -= 0.001f;
-		color[1] <= 0 ? isGAdd = true : isGAdd = false;
-
-	}
-
-	if (color[2] <= 1.0f && isBAdd)
-	{
-		color[2] += 0.001f;
-		isBAdd = true;
-	}
-	else
-	{
-		color[2] -= 0.001f;
-		color[2] <= 0 ? isBAdd = true : isBAdd = false;
+		offset -= 0.01f;
+		offset <= -3 ? isOffset = true : isOffset = false;
 
 	}
 
@@ -822,7 +833,11 @@ void OnUpdate()
 	XMMATRIX MVP = m * v * p;
 
 	SceneConstantBuffer objConstants;
+	XMStoreFloat4x4(&objConstants.Model, XMMatrixTranspose(m));
 	XMStoreFloat4x4(&objConstants.MVP, XMMatrixTranspose(MVP));
+	objConstants.lightColor = { 1.0f,1.0f,1.0f };
+	objConstants.lightPosition = { 1.0f+offset, 1.0f, 2.0f };
+	objConstants.viewPosition = { 0.0f, 1.0f, -3.0f };
 	memcpy(pCbvDataBegin, &objConstants, sizeof(objConstants));
 
 }

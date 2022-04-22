@@ -4,26 +4,55 @@ SamplerState s1 : register(s0);
 
 cbuffer SceneConstantBuffer : register(b0)
 {
-    float4x4 WorldViewProj;
+    float4x4 Model;
+    float4x4 MVP;
+    float3 lightColor;
+    float3 lightPosition;
+    float3 viewPosition;
 }
 
 struct PSInput
 {
     float4 position : SV_POSITION;
     float2 texCoord : TEXCOORD;
+    float3 normal : NORMAL;
+    float4 worldPosition : POSITION;
 };
 
-PSInput VSMain(float4 position : POSITION, float2 texCoord : TEXCOORD)
+PSInput VSMain(float4 position : POSITION, float3 normal : NORMAL, float2 texCoord : TEXCOORD)
 {
     PSInput result;
 
-    result.position = mul(position,WorldViewProj);
+    result.worldPosition = mul(position, Model);
+    result.position = mul(position, MVP);
     result.texCoord = texCoord;
+    result.normal = normal; //如果物体进行了非等比缩放，这里需要对法线进行模型矩阵左上角的逆矩阵的转置矩阵变换。
 
     return result;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return t1.Sample(s1, input.texCoord);
+    float4 color = t1.Sample(s1, input.texCoord);
+    //ambient
+    float ambientStrength = 0.1;
+    float3 ambient = mul(ambientStrength, lightColor);
+  	
+    // diffuse 
+    float3 norm = normalize(input.normal);
+    float3 lightDir = normalize(lightPosition - viewPosition);
+    float diff = max(dot(norm, lightDir), 0.0);
+    float3 diffuse = mul(diff, lightColor);
+    
+    // specular
+    float specularStrength = 0.5;
+    float3 viewDir = normalize(viewPosition - input.worldPosition.xyz);
+    //float3 reflectDir = reflect(-lightDir, norm);
+    float3 H = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(H, norm), 0.0), 32);
+    float3 specular = mul(mul(specularStrength, spec), lightColor);
+        
+    color = mul((ambient + diffuse + specular), color.xyz);
+
+    return color;
 }
