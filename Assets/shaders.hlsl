@@ -33,16 +33,16 @@ PSInput VSMain(float4 position : POSITION, float3 normal : NORMAL, float2 texCoo
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 color = t1.Sample(s1, input.texCoord);
+    float3 color = t1.Sample(s1, input.texCoord);
     //ambient
     float ambientStrength = 0.1;
-    float3 ambient = mul(ambientStrength, lightColor);
+    float3 ambient = mul(mul(ambientStrength, lightColor), color);
   	
     // diffuse 
     float3 norm = normalize(input.normal);
     float3 lightDir = normalize(lightPosition - viewPosition);
     float diff = max(dot(norm, lightDir), 0.0);
-    float3 diffuse = mul(diff, lightColor);
+    float3 diffuse = mul(mul(diff, lightColor), color);
     
     // specular
     float specularStrength = 0.5;
@@ -50,9 +50,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     //float3 reflectDir = reflect(-lightDir, norm);
     float3 H = normalize(lightDir + viewDir);
     float spec = pow(max(dot(H, norm), 0.0), 32);
-    float3 specular = mul(mul(specularStrength, spec), lightColor);
+    float3 specular = mul(mul(mul(specularStrength, spec), lightColor), color);
         
-    color = mul((ambient + diffuse + specular), color.xyz);
+    float4 outcolor = float4((ambient + diffuse + specular),1.0);
 
-    return color;
+    return outcolor;
 }
