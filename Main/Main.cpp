@@ -3,12 +3,12 @@
 #include <dxgi1_4.h>
 #include <wrl.h>
 #include <d3dcompiler.h>
-#include <DirectXMath.h>
 #include <wincodec.h>
-
+#include <windowsx.h>
 #include<iostream>
 
 #include "../DXUtils/d3dx12.h"
+#include "../Camera/Camera.h"
 
 
 #pragma comment(lib, "d3d12.lib")
@@ -18,7 +18,6 @@
 
 
 using namespace Microsoft::WRL;
-using namespace DirectX;
 
 
 struct Vertex
@@ -84,6 +83,44 @@ ComPtr<ID3D12Resource> textureBuffer;
 ComPtr<ID3D12Resource> textureBufferUploadHeap;
 UINT cbvsrvDescriptorSize;
 BYTE* imageData;
+
+//
+POINT lastMousePos;
+Camera camera;
+
+void OnMouseMove(WPARAM btnState, int x, int y)
+{
+	if ((btnState & MK_LBUTTON) != 0)
+	{
+		float dx = XMConvertToRadians(0.25f * static_cast<float>(x - lastMousePos.x));
+		float dy = XMConvertToRadians(0.25f * static_cast<float>(y - lastMousePos.y));
+
+		camera.Pitch(dy);
+		camera.RotateY(dx);
+	}
+
+	lastMousePos.x = x;
+	lastMousePos.y = y;
+}
+
+void OnKeyboardInput()
+{
+	const float dt = 0.01f;
+
+	if (GetAsyncKeyState('W') & 0x8000)
+		camera.Walk(10.0f * dt);
+
+	if (GetAsyncKeyState('S') & 0x8000)
+		camera.Walk(-10.0f * dt);
+
+	if (GetAsyncKeyState('A') & 0x8000)
+		camera.Strafe(-10.0f * dt);
+
+	if (GetAsyncKeyState('D') & 0x8000)
+		camera.Strafe(10.0f * dt);
+
+	camera.UpdateViewMatrix();
+}
 
 DXGI_FORMAT GetDXGIFormatFromWICFormat(WICPixelFormatGUID& wicFormatGUID)
 {
@@ -821,15 +858,10 @@ void OnUpdate()
 		offset <= -3 ? isOffset = true : isOffset = false;
 
 	}
-
-	XMVECTOR pos = XMVectorSet(0.0f, 5.0f, -5.0f, 1.0f);
-	XMVECTOR target = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
-	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
-	XMMATRIX v = XMMatrixLookAtLH(pos, target, up);
-
+	OnKeyboardInput();
+	XMMATRIX v = camera.GetView();
+	XMMATRIX p = camera.GetProj();
 	XMMATRIX m = XMMatrixIdentity();
-	XMMATRIX p = XMMatrixPerspectiveFovLH(XM_PIDIV4,width/height,1.0f,1000.0f);
 	XMMATRIX MVP = m * v * p;
 
 	SceneConstantBuffer objConstants;
@@ -871,7 +903,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
 		OnUpdate();
 		OnRender();
 		return 0;
-
+	case WM_MOUSEMOVE:
+		OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+		return 0;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		return 0;
@@ -905,6 +939,7 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 		hInstance,
 		nullptr);
 
+	camera.SetPosition(0.0f, 2.0f, -15.0f);
 	LoadPipeline();
 	LoadAsset();
 
@@ -917,6 +952,10 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
+		}
+		else
+		{
+
 		}
 	}
 

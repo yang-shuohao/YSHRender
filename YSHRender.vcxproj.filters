@@ -2,9 +2,11 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="Main\Main.cpp" />
+    <ClCompile Include="Camera\Camera.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DXUtils\d3dx12.h" />
+    <ClInclude Include="Camera\Camera.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="Assets\shaders.hlsl" />
