@@ -26,11 +26,18 @@ using namespace Microsoft::WRL;
 struct Vertex
 {
 	XMFLOAT3 position;
+	XMFLOAT3 normal;
+	XMFLOAT2 texcoord;
 };
 
 struct SceneConstantBuffer
 {
 	XMFLOAT4X4 MVP;
+	XMFLOAT4X4 Model;
+	XMFLOAT3 AmbientDown;
+	FLOAT padding1;
+	XMFLOAT3 AmbientUp;
+	FLOAT padding2;
 };
 
 const UINT FrameCount = 2;
@@ -69,8 +76,10 @@ HANDLE fenceEvent;
 ComPtr<ID3D12Fence> fence;
 UINT64 fenceValue;
 
-float offset;
-bool isOffset = false;
+float ambientUpOffset;
+float ambientDownOffset;
+bool isAmbientUpOffset = false;
+bool isAmbientDownOffset = false;
 //
 ComPtr<ID3D12Resource> textureBuffer;
 ComPtr<ID3D12Resource> textureBufferUploadHeap;
@@ -110,13 +119,14 @@ void LoadModels(const char* modelFilename)
 		Mesh tempMesh;
 
 		{
-			// Positions
+			// Positions and Normals
 			const std::size_t numVertices{ mesh->mNumVertices };
 			assert(numVertices > 0U);
 			tempMesh.vertices.resize(numVertices);
 			for (std::uint32_t i = 0U; i < numVertices; ++i)
 			{
 				tempMesh.vertices[i].position = XMFLOAT3(reinterpret_cast<const float*>(&mesh->mVertices[i]));
+				tempMesh.vertices[i].normal = XMFLOAT3(reinterpret_cast<const float*>(&mesh->mNormals[i]));
 			}
 
 			// Indices
@@ -132,6 +142,18 @@ void LoadModels(const char* modelFilename)
 				tempMesh.indices.push_back(face->mIndices[0U]);
 				tempMesh.indices.push_back(face->mIndices[1U]);
 				tempMesh.indices.push_back(face->mIndices[2U]);
+			}
+
+			// Texture Coordinates (if any)
+			if (mesh->HasTextureCoords(0U))
+			{
+				assert(mesh->GetNumUVChannels() == 1U);
+				const aiVector3D* aiTextureCoordinates{ mesh->mTextureCoords[0U] };
+				assert(aiTextureCoordinates != nullptr);
+				for (std::uint32_t i = 0U; i < numVertices; i++)
+				{
+					tempMesh.vertices[i].texcoord = XMFLOAT2(reinterpret_cast<const float*>(&aiTextureCoordinates[i]));
+				}
 			}
 		}
 
@@ -156,7 +178,7 @@ void OnMouseMove(WPARAM btnState, int x, int y)
 
 void OnKeyboardInput()
 {
-	const float dt = 0.01f;
+	const float dt = 0.001f;
 
 	if (GetAsyncKeyState('W') & 0x8000)
 		camera.Walk(10.0f * dt);
@@ -406,7 +428,9 @@ void LoadAsset()
 
 		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
 		{
-			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 		};
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -574,17 +598,30 @@ void PopulateCommandList()
 void OnUpdate()
 {
 
-	if (offset <= 3.0f && isOffset)
+	if (ambientUpOffset <= 1.0f && isAmbientUpOffset)
 	{
-		offset += 0.01f;
-		isOffset = true;
+		ambientUpOffset += 0.001f;
+		isAmbientUpOffset = true;
 	}
 	else
 	{
-		offset -= 0.01f;
-		offset <= -3 ? isOffset = true : isOffset = false;
+		ambientUpOffset -= 0.001f;
+		ambientUpOffset <= 0.1f ? isAmbientUpOffset = true : isAmbientUpOffset = false;
 
 	}
+
+	if (ambientDownOffset <= 1.0f && isAmbientDownOffset)
+	{
+		ambientDownOffset += 0.001f;
+		isAmbientDownOffset = true;
+	}
+	else
+	{
+		ambientDownOffset -= 0.001f;
+		ambientDownOffset <= 0.1f ? isAmbientDownOffset = true : isAmbientDownOffset = false;
+
+	}
+
 	OnKeyboardInput();
 	XMMATRIX v = camera.GetView();
 	XMMATRIX p = camera.GetProj();
@@ -596,7 +633,10 @@ void OnUpdate()
 	XMMATRIX MVP = m * v * p;
 
 	SceneConstantBuffer objConstants;
+	objConstants.AmbientDown = { ambientDownOffset,ambientDownOffset,ambientDownOffset };
+	objConstants.AmbientUp = { ambientUpOffset,ambientUpOffset,ambientUpOffset };
 	XMStoreFloat4x4(&objConstants.MVP, XMMatrixTranspose(MVP));
+	XMStoreFloat4x4(&objConstants.Model, XMMatrixTranspose(m));
 	memcpy(pCbvDataBegin, &objConstants, sizeof(objConstants));
 
 }
