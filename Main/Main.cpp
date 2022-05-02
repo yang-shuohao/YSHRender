@@ -10,6 +10,9 @@
 #include "../DXUtils/d3dx12.h"
 #include "../Camera/Camera.h"
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -22,22 +25,12 @@ using namespace Microsoft::WRL;
 
 struct Vertex
 {
-	Vertex(float x, float y, float z,float nx,float ny,float nz, float u, float v) : position(x, y, z), normal(nx,ny,nz), texCoord(u, v) {}
 	XMFLOAT3 position;
-	XMFLOAT3 normal;
-	XMFLOAT2 texCoord;
 };
 
 struct SceneConstantBuffer
 {
-	XMFLOAT4X4 Model;
 	XMFLOAT4X4 MVP;
-	XMFLOAT3 lightColor;
-	float padding1;
-	XMFLOAT3 lightPosition;
-	float padding2;
-	XMFLOAT3 viewPosition;
-	float padding3;
 };
 
 const UINT FrameCount = 2;
@@ -88,6 +81,64 @@ BYTE* imageData;
 POINT lastMousePos;
 Camera camera;
 
+//
+struct Mesh
+{
+	std::vector<Vertex> vertices;
+	std::vector<std::uint32_t> indices;
+};
+
+std::vector<Mesh> meshes;
+
+void LoadModels(const char* modelFilename)
+{
+	assert(modelFilename != nullptr);
+	const std::string filePath(modelFilename);
+
+	Assimp::Importer importer;
+	const std::uint32_t flags{ aiProcessPreset_TargetRealtime_Fast | aiProcess_ConvertToLeftHanded };
+	const aiScene* scene{ importer.ReadFile(filePath.c_str(), flags) };
+	assert(scene != nullptr);
+
+	assert(scene->HasMeshes());
+
+	for (std::uint32_t i = 0U; i < scene->mNumMeshes; ++i)
+	{
+		aiMesh* mesh{ scene->mMeshes[i] };
+		assert(mesh != nullptr);
+
+		Mesh tempMesh;
+
+		{
+			// Positions
+			const std::size_t numVertices{ mesh->mNumVertices };
+			assert(numVertices > 0U);
+			tempMesh.vertices.resize(numVertices);
+			for (std::uint32_t i = 0U; i < numVertices; ++i)
+			{
+				tempMesh.vertices[i].position = XMFLOAT3(reinterpret_cast<const float*>(&mesh->mVertices[i]));
+			}
+
+			// Indices
+			const std::uint32_t numFaces{ mesh->mNumFaces };
+			assert(numFaces > 0U);
+			for (std::uint32_t i = 0U; i < numFaces; ++i) 
+			{
+				const aiFace* face = &mesh->mFaces[i];
+				assert(face != nullptr);
+				// We only allow triangles
+				assert(face->mNumIndices == 3U);
+
+				tempMesh.indices.push_back(face->mIndices[0U]);
+				tempMesh.indices.push_back(face->mIndices[1U]);
+				tempMesh.indices.push_back(face->mIndices[2U]);
+			}
+		}
+
+		meshes.push_back(tempMesh);
+	}
+}
+
 void OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if ((btnState & MK_LBUTTON) != 0)
@@ -121,199 +172,6 @@ void OnKeyboardInput()
 
 	camera.UpdateViewMatrix();
 }
-
-DXGI_FORMAT GetDXGIFormatFromWICFormat(WICPixelFormatGUID& wicFormatGUID)
-{
-	if (wicFormatGUID == GUID_WICPixelFormat128bppRGBAFloat) return DXGI_FORMAT_R32G32B32A32_FLOAT;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppRGBAHalf) return DXGI_FORMAT_R16G16B16A16_FLOAT;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppRGBA) return DXGI_FORMAT_R16G16B16A16_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppRGBA) return DXGI_FORMAT_R8G8B8A8_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppBGRA) return DXGI_FORMAT_B8G8R8A8_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppBGR) return DXGI_FORMAT_B8G8R8X8_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppRGBA1010102XR) return DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM;
-
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppRGBA1010102) return DXGI_FORMAT_R10G10B10A2_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat16bppBGRA5551) return DXGI_FORMAT_B5G5R5A1_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat16bppBGR565) return DXGI_FORMAT_B5G6R5_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppGrayFloat) return DXGI_FORMAT_R32_FLOAT;
-	else if (wicFormatGUID == GUID_WICPixelFormat16bppGrayHalf) return DXGI_FORMAT_R16_FLOAT;
-	else if (wicFormatGUID == GUID_WICPixelFormat16bppGray) return DXGI_FORMAT_R16_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat8bppGray) return DXGI_FORMAT_R8_UNORM;
-	else if (wicFormatGUID == GUID_WICPixelFormat8bppAlpha) return DXGI_FORMAT_A8_UNORM;
-
-	else return DXGI_FORMAT_UNKNOWN;
-}
-
-WICPixelFormatGUID GetConvertToWICFormat(WICPixelFormatGUID& wicFormatGUID)
-{
-	if (wicFormatGUID == GUID_WICPixelFormatBlackWhite) return GUID_WICPixelFormat8bppGray;
-	else if (wicFormatGUID == GUID_WICPixelFormat1bppIndexed) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat2bppIndexed) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat4bppIndexed) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat8bppIndexed) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat2bppGray) return GUID_WICPixelFormat8bppGray;
-	else if (wicFormatGUID == GUID_WICPixelFormat4bppGray) return GUID_WICPixelFormat8bppGray;
-	else if (wicFormatGUID == GUID_WICPixelFormat16bppGrayFixedPoint) return GUID_WICPixelFormat16bppGrayHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppGrayFixedPoint) return GUID_WICPixelFormat32bppGrayFloat;
-	else if (wicFormatGUID == GUID_WICPixelFormat16bppBGR555) return GUID_WICPixelFormat16bppBGRA5551;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppBGR101010) return GUID_WICPixelFormat32bppRGBA1010102;
-	else if (wicFormatGUID == GUID_WICPixelFormat24bppBGR) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat24bppRGB) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppPBGRA) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppPRGBA) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat48bppRGB) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat48bppBGR) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppBGRA) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppPRGBA) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppPBGRA) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat48bppRGBFixedPoint) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat48bppBGRFixedPoint) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppRGBAFixedPoint) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppBGRAFixedPoint) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppRGBFixedPoint) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppRGBHalf) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat48bppRGBHalf) return GUID_WICPixelFormat64bppRGBAHalf;
-	else if (wicFormatGUID == GUID_WICPixelFormat128bppPRGBAFloat) return GUID_WICPixelFormat128bppRGBAFloat;
-	else if (wicFormatGUID == GUID_WICPixelFormat128bppRGBFloat) return GUID_WICPixelFormat128bppRGBAFloat;
-	else if (wicFormatGUID == GUID_WICPixelFormat128bppRGBAFixedPoint) return GUID_WICPixelFormat128bppRGBAFloat;
-	else if (wicFormatGUID == GUID_WICPixelFormat128bppRGBFixedPoint) return GUID_WICPixelFormat128bppRGBAFloat;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppRGBE) return GUID_WICPixelFormat128bppRGBAFloat;
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppCMYK) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppCMYK) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat40bppCMYKAlpha) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat80bppCMYKAlpha) return GUID_WICPixelFormat64bppRGBA;
-
-#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8) || defined(_WIN7_PLATFORM_UPDATE)
-	else if (wicFormatGUID == GUID_WICPixelFormat32bppRGB) return GUID_WICPixelFormat32bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppRGB) return GUID_WICPixelFormat64bppRGBA;
-	else if (wicFormatGUID == GUID_WICPixelFormat64bppPRGBAHalf) return GUID_WICPixelFormat64bppRGBAHalf;
-#endif
-
-	else return GUID_WICPixelFormatDontCare;
-}
-
-int GetDXGIFormatBitsPerPixel(DXGI_FORMAT& dxgiFormat)
-{
-	if (dxgiFormat == DXGI_FORMAT_R32G32B32A32_FLOAT) return 128;
-	else if (dxgiFormat == DXGI_FORMAT_R16G16B16A16_FLOAT) return 64;
-	else if (dxgiFormat == DXGI_FORMAT_R16G16B16A16_UNORM) return 64;
-	else if (dxgiFormat == DXGI_FORMAT_R8G8B8A8_UNORM) return 32;
-	else if (dxgiFormat == DXGI_FORMAT_B8G8R8A8_UNORM) return 32;
-	else if (dxgiFormat == DXGI_FORMAT_B8G8R8X8_UNORM) return 32;
-	else if (dxgiFormat == DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM) return 32;
-
-	else if (dxgiFormat == DXGI_FORMAT_R10G10B10A2_UNORM) return 32;
-	else if (dxgiFormat == DXGI_FORMAT_B5G5R5A1_UNORM) return 16;
-	else if (dxgiFormat == DXGI_FORMAT_B5G6R5_UNORM) return 16;
-	else if (dxgiFormat == DXGI_FORMAT_R32_FLOAT) return 32;
-	else if (dxgiFormat == DXGI_FORMAT_R16_FLOAT) return 16;
-	else if (dxgiFormat == DXGI_FORMAT_R16_UNORM) return 16;
-	else if (dxgiFormat == DXGI_FORMAT_R8_UNORM) return 8;
-	else if (dxgiFormat == DXGI_FORMAT_A8_UNORM) return 8;
-	return 0;
-}
-
-int LoadImageDataFromFile(BYTE** imageData, D3D12_RESOURCE_DESC& resourceDescription, LPCWSTR filename, int& bytesPerRow)
-{
-	HRESULT hr;
-
-	static IWICImagingFactory* wicFactory;
-
-	IWICBitmapDecoder* wicDecoder = NULL;
-	IWICBitmapFrameDecode* wicFrame = NULL;
-	IWICFormatConverter* wicConverter = NULL;
-
-	bool imageConverted = false;
-
-	if (wicFactory == NULL)
-	{
-		CoInitialize(NULL);
-
-		hr = CoCreateInstance(
-			CLSID_WICImagingFactory,
-			NULL,
-			CLSCTX_INPROC_SERVER,
-			IID_PPV_ARGS(&wicFactory)
-		);
-		if (FAILED(hr)) return 0;
-
-		hr = wicFactory->CreateFormatConverter(&wicConverter);
-		if (FAILED(hr)) return 0;
-	}
-
-	hr = wicFactory->CreateDecoderFromFilename(
-		filename,                        
-		NULL,                            
-		GENERIC_READ,                    
-		WICDecodeMetadataCacheOnLoad,    
-		&wicDecoder                      
-	);
-	if (FAILED(hr)) return 0;
-
-	hr = wicDecoder->GetFrame(0, &wicFrame);
-	if (FAILED(hr)) return 0;
-
-	WICPixelFormatGUID pixelFormat;
-	hr = wicFrame->GetPixelFormat(&pixelFormat);
-	if (FAILED(hr)) return 0;
-
-	UINT textureWidth, textureHeight;
-	hr = wicFrame->GetSize(&textureWidth, &textureHeight);
-	if (FAILED(hr)) return 0;
-
-	DXGI_FORMAT dxgiFormat = GetDXGIFormatFromWICFormat(pixelFormat);
-
-	if (dxgiFormat == DXGI_FORMAT_UNKNOWN)
-	{
-		WICPixelFormatGUID convertToPixelFormat = GetConvertToWICFormat(pixelFormat);
-
-		if (convertToPixelFormat == GUID_WICPixelFormatDontCare) return 0;
-
-		dxgiFormat = GetDXGIFormatFromWICFormat(convertToPixelFormat);
-
-		BOOL canConvert = FALSE;
-		hr = wicConverter->CanConvert(pixelFormat, convertToPixelFormat, &canConvert);
-		if (FAILED(hr) || !canConvert) return 0;
-
-		hr = wicConverter->Initialize(wicFrame, convertToPixelFormat, WICBitmapDitherTypeErrorDiffusion, 0, 0, WICBitmapPaletteTypeCustom);
-		if (FAILED(hr)) return 0;
-
-		imageConverted = true;
-	}
-
-	int bitsPerPixel = GetDXGIFormatBitsPerPixel(dxgiFormat);
-	bytesPerRow = (textureWidth * bitsPerPixel) / 8; 
-	int imageSize = bytesPerRow * textureHeight; 
-
-	*imageData = (BYTE*)malloc(imageSize);
-
-	if (imageConverted)
-	{
-		hr = wicConverter->CopyPixels(0, bytesPerRow, imageSize, *imageData);
-		if (FAILED(hr)) return 0;
-	}
-	else
-	{
-		hr = wicFrame->CopyPixels(0, bytesPerRow, imageSize, *imageData);
-		if (FAILED(hr)) return 0;
-	}
-
-	resourceDescription = {};
-	resourceDescription.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	resourceDescription.Alignment = 0;
-	resourceDescription.Width = textureWidth; 
-	resourceDescription.Height = textureHeight;
-	resourceDescription.DepthOrArraySize = 1; 
-	resourceDescription.MipLevels = 1; 
-	resourceDescription.Format = dxgiFormat; 
-	resourceDescription.SampleDesc.Count = 1; 
-	resourceDescription.SampleDesc.Quality = 0; 
-	resourceDescription.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN; 
-	resourceDescription.Flags = D3D12_RESOURCE_FLAG_NONE; 
-
-	return imageSize;
-}
-
 
 template <typename T>
 constexpr UINT CalcConstantBufferByteSize()
@@ -510,13 +368,12 @@ void LoadAsset()
 			featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
 		}
 
-		CD3DX12_DESCRIPTOR_RANGE1 ranges[2];
+		CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
 		CD3DX12_ROOT_PARAMETER1 rootParameters[1];
 
 		ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-		ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 
-		rootParameters[0].InitAsDescriptorTable(2, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+		rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
 
 
 		D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
@@ -525,23 +382,8 @@ void LoadAsset()
 			D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
 			D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
 
-		D3D12_STATIC_SAMPLER_DESC sampler = {};
-		sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-		sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-		sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-		sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-		sampler.MipLODBias = 0;
-		sampler.MaxAnisotropy = 0;
-		sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-		sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-		sampler.MinLOD = 0.0f;
-		sampler.MaxLOD = D3D12_FLOAT32_MAX;
-		sampler.ShaderRegister = 0;
-		sampler.RegisterSpace = 0;
-		sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
 		CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-		rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, rootSignatureFlags);
+		rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
 
 		ComPtr<ID3DBlob> signature;
 		ComPtr<ID3DBlob> error;
@@ -564,9 +406,7 @@ void LoadAsset()
 
 		D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
 		{
-			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-			{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
 		};
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -588,77 +428,14 @@ void LoadAsset()
 
 	ThrowIfFailed(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), pipelineState.Get(), IID_PPV_ARGS(&commandList)));
 
-	//ThrowIfFailed(commandList->Close());
+	ThrowIfFailed(commandList->Close());
 
 	{
-		Vertex triangleVertices[] =
-		{
-			// front face
-			{ -0.5f,  0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f },
-			{  0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 1.0f },
-			{ -0.5f, -0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f },
-			{  0.5f,  0.5f, -0.5f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f },
+// 		const UINT vertexBufferSize = sizeof(meshes[0].vertices);
+// 		const UINT indexBufferSize = sizeof(meshes[0].indices);
 
-			// right side face
-			{  0.5f, -0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
-			{  0.5f,  0.5f,  0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f },
-			{  0.5f, -0.5f,  0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f },
-			{  0.5f,  0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
-
-			// left side face
-			{ -0.5f,  0.5f,  0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f },
-			{ -0.5f, -0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 1.0f },
-			{ -0.5f, -0.5f,  0.5f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f },
-			{ -0.5f,  0.5f, -0.5f, -1.0f, 0.0f, 0.0f, 1.0f, 0.0f },
-
-			// back face
-			{  0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f },
-			{ -0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f },
-			{  0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f },
-			{ -0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f },
-
-			// top face
-			{ -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f },
-			{  0.5f,  0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f },
-			{  0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f },
-			{ -0.5f,  0.5f,  0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f },
-
-			// bottom face
-			{  0.5f, -0.5f,  0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f },
-			{ -0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 1.0f },
-			{  0.5f, -0.5f, -0.5f, 0.0f, -1.0f, 0.0f, 0.0f, 1.0f },
-			{ -0.5f, -0.5f,  0.5f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f },
-		};
-
-		DWORD triangleIndexs[]
-		{
-			// front face
-			 0, 1, 2, // first triangle
-			 0, 3, 1, // second triangle
-
-			 // left face
-			 4, 5, 6, // first triangle
-			 4, 7, 5, // second triangle
-
-			 // right face
-			 8, 9, 10, // first triangle
-			 8, 11, 9, // second triangle
-
-			 // back face
-			 12, 13, 14, // first triangle
-			 12, 15, 13, // second triangle
-
-			 // top face
-			 16, 17, 18, // first triangle
-			 16, 19, 17, // second triangle
-
-			 // bottom face
-			 20, 21, 22, // first triangle
-			 20, 23, 21, // second triangle
-		};
-
-		const UINT vertexBufferSize = sizeof(triangleVertices);
-		const UINT indexBufferSize = sizeof(triangleIndexs);
+		const std::uint32_t vertexBufferSize = meshes[0].vertices.size() * sizeof(Vertex);
+		const std::uint32_t indexBufferSize = meshes[0].indices.size() * sizeof(std::uint32_t);
 
 		CD3DX12_HEAP_PROPERTIES heapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 		CD3DX12_RESOURCE_DESC vertexResourceDes = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
@@ -684,11 +461,11 @@ void LoadAsset()
 		CD3DX12_RANGE readRange(0, 0);
 
 		ThrowIfFailed(vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pDataBegin)));
-		memcpy(pDataBegin, triangleVertices, sizeof(triangleVertices));
+		memcpy(pDataBegin, &meshes[0].vertices[0], vertexBufferSize);
 		vertexBuffer->Unmap(0, nullptr);
 
 		ThrowIfFailed(indexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pDataBegin)));
-		memcpy(pDataBegin, triangleIndexs, sizeof(triangleIndexs));
+		memcpy(pDataBegin, &meshes[0].indices[0], indexBufferSize);
 		indexBuffer->Unmap(0, nullptr);
 
 		vertexBufferView.BufferLocation = vertexBuffer->GetGPUVirtualAddress();
@@ -743,56 +520,6 @@ void LoadAsset()
 	}
 
 	{
-		D3D12_RESOURCE_DESC textureDesc;
-		int imageBytesPerRow;
-		int imageSize = LoadImageDataFromFile(&imageData, textureDesc, L"Resources/wall.jpg", imageBytesPerRow);
-
-		CD3DX12_HEAP_PROPERTIES heapProperties = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-		ThrowIfFailed(device->CreateCommittedResource(
-			&heapProperties,
-			D3D12_HEAP_FLAG_NONE, 
-			&textureDesc, 
-			D3D12_RESOURCE_STATE_COPY_DEST,
-			nullptr,
-			IID_PPV_ARGS(&textureBuffer)));
-
-		const UINT64 uploadBufferSize = GetRequiredIntermediateSize(textureBuffer.Get(), 0, 1);
-
-		CD3DX12_HEAP_PROPERTIES heapProperties2 = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-		CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize);
-		ThrowIfFailed(device->CreateCommittedResource(
-			&heapProperties2,
-			D3D12_HEAP_FLAG_NONE,
-			&resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ, 
-			nullptr,
-			IID_PPV_ARGS(&textureBufferUploadHeap)));
-
-		D3D12_SUBRESOURCE_DATA textureData = {};
-		textureData.pData = &imageData[0];
-		textureData.RowPitch = imageBytesPerRow; 
-		textureData.SlicePitch = imageBytesPerRow * textureDesc.Height;
-
-		UpdateSubresources(commandList.Get(), textureBuffer.Get(), textureBufferUploadHeap.Get(), 0, 0, 1, &textureData);
-		CD3DX12_RESOURCE_BARRIER resBarrier = CD3DX12_RESOURCE_BARRIER::Transition(textureBuffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-		commandList->ResourceBarrier(1,&resBarrier);
-
-		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-		srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		srvDesc.Format = textureDesc.Format;
-		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-		srvDesc.Texture2D.MipLevels = 1;
-
-		CD3DX12_CPU_DESCRIPTOR_HANDLE cbvsrvHandle(cbvsrvHeap->GetCPUDescriptorHandleForHeapStart());
-		cbvsrvHandle.Offset(1, cbvsrvDescriptorSize);
-		device->CreateShaderResourceView(textureBuffer.Get(), &srvDesc, cbvsrvHandle);
-
-		ThrowIfFailed(commandList->Close());
-  		ID3D12CommandList* ppCommandLists[] = { commandList.Get() };
- 		commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-	}
-
-	{
 		ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
 		fenceValue = 1;
 
@@ -836,7 +563,7 @@ void PopulateCommandList()
 	commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 	commandList->IASetIndexBuffer(&indexBufferView);
-	commandList->DrawIndexedInstanced(36, 1, 0, 0, 0);
+	commandList->DrawIndexedInstanced(meshes[0].indices.size(), 1, 0, 0, 0);
 
 	resBarrier = CD3DX12_RESOURCE_BARRIER::Transition(renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 	commandList->ResourceBarrier(1, &resBarrier);
@@ -861,15 +588,15 @@ void OnUpdate()
 	OnKeyboardInput();
 	XMMATRIX v = camera.GetView();
 	XMMATRIX p = camera.GetProj();
-	XMMATRIX m = XMMatrixIdentity();
+
+	XMMATRIX translation = XMMatrixTranslation(0.0f, 0.0f, 0.0f);
+	XMMATRIX scale = XMMatrixScaling(1.0f, 1.0f, 1.0f);
+	XMMATRIX rotation = XMMatrixRotationAxis({ 0.0f, 1.0f, 0.0f }, XMConvertToRadians(90.0f));
+	XMMATRIX m = scale * rotation * translation;
 	XMMATRIX MVP = m * v * p;
 
 	SceneConstantBuffer objConstants;
-	XMStoreFloat4x4(&objConstants.Model, XMMatrixTranspose(m));
 	XMStoreFloat4x4(&objConstants.MVP, XMMatrixTranspose(MVP));
-	objConstants.lightColor = { 1.0f,1.0f,1.0f };
-	objConstants.lightPosition = { 1.0f+offset, 1.0f, 2.0f };
-	objConstants.viewPosition = { 0.0f, 1.0f, -3.0f };
 	memcpy(pCbvDataBegin, &objConstants, sizeof(objConstants));
 
 }
@@ -939,8 +666,9 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance,
 		hInstance,
 		nullptr);
 
-	camera.SetPosition(0.0f, 2.0f, -15.0f);
+	camera.SetPosition(0.0f, 0.0f, -2.0f);
 	LoadPipeline();
+	LoadModels("Resources/models/dragon.obj");
 	LoadAsset();
 
 	ShowWindow(hwnd, SW_SHOW);
