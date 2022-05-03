@@ -15,6 +15,10 @@ void Camera::SetPosition(float x, float y, float z)
 	mViewDirty = true;
 }
 
+XMFLOAT3 Camera::GetPosition()
+{
+	return mPosition;
+}
 
 void Camera::SetLens(float fovY, float aspect, float zn, float zf)
 {

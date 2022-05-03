@@ -11,7 +11,7 @@ public:
 	~Camera();
 
 	void SetPosition(float x, float y, float z);
-
+	XMFLOAT3 GetPosition();
 
 	void SetLens(float fovY, float aspect, float zn, float zf);
 

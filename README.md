@@ -17,7 +17,9 @@ YSHRender是个人学习渲染技术开发的一个渲染引擎，重点在于�
 [DX12渲染引擎（十二）光照贴图](https://zhuanlan.zhihu.com/p/503384161)   
 [DX12渲染引擎（十三）第一人称摄像机](https://zhuanlan.zhihu.com/p/508168583)         
 [DX12渲染引擎（十四）加载模型](https://zhuanlan.zhihu.com/p/508186604)                  
-[DX12渲染引擎（十五）半球环境光](https://zhuanlan.zhihu.com/p/508399562)                  
+[DX12渲染引擎（十五）半球环境光](https://zhuanlan.zhihu.com/p/508399562)     
+[DX12渲染引擎（十六）方向光](https://zhuanlan.zhihu.com/p/508734069)                  
+
 
 
 

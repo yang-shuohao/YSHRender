@@ -30,14 +30,19 @@ struct Vertex
 	XMFLOAT2 texcoord;
 };
 
+
 struct SceneConstantBuffer
 {
 	XMFLOAT4X4 MVP;
 	XMFLOAT4X4 Model;
-	XMFLOAT3 AmbientDown;
+	XMFLOAT3 DirToLight;
 	FLOAT padding1;
-	XMFLOAT3 AmbientUp;
+	XMFLOAT3 DirLightColor;
 	FLOAT padding2;
+	XMFLOAT3 EyePosition;
+	FLOAT specExp;
+	XMFLOAT3 diffuseColor;
+	FLOAT specIntensity;
 };
 
 const UINT FrameCount = 2;
@@ -76,10 +81,14 @@ HANDLE fenceEvent;
 ComPtr<ID3D12Fence> fence;
 UINT64 fenceValue;
 
-float ambientUpOffset;
-float ambientDownOffset;
-bool isAmbientUpOffset = false;
-bool isAmbientDownOffset = false;
+float xOffset;
+float yOffset;
+float zOffset;
+
+bool isxOffset = false;
+bool isyOffset = false;
+bool iszOffset = false;
+
 //
 ComPtr<ID3D12Resource> textureBuffer;
 ComPtr<ID3D12Resource> textureBufferUploadHeap;
@@ -598,27 +607,39 @@ void PopulateCommandList()
 void OnUpdate()
 {
 
-	if (ambientUpOffset <= 1.0f && isAmbientUpOffset)
+	if (xOffset <= 2.0f && isxOffset)
 	{
-		ambientUpOffset += 0.001f;
-		isAmbientUpOffset = true;
+		xOffset += 0.01f;
+		isxOffset = true;
 	}
 	else
 	{
-		ambientUpOffset -= 0.001f;
-		ambientUpOffset <= 0.1f ? isAmbientUpOffset = true : isAmbientUpOffset = false;
+		xOffset -= 0.01f;
+		xOffset <= -2.0f ? isxOffset = true : isxOffset = false;
 
 	}
 
-	if (ambientDownOffset <= 1.0f && isAmbientDownOffset)
+	if (yOffset <= 1.0f && isyOffset)
 	{
-		ambientDownOffset += 0.001f;
-		isAmbientDownOffset = true;
+		yOffset += 0.001f;
+		isyOffset = true;
 	}
 	else
 	{
-		ambientDownOffset -= 0.001f;
-		ambientDownOffset <= 0.1f ? isAmbientDownOffset = true : isAmbientDownOffset = false;
+		yOffset -= 0.001f;
+		yOffset <= 0.0f ? isyOffset = true : isyOffset = false;
+
+	}
+
+	if (zOffset <= 1.0f && iszOffset)
+	{
+		zOffset += 0.001f;
+		iszOffset = true;
+	}
+	else
+	{
+		zOffset -= 0.001f;
+		zOffset <= 0.0f ? iszOffset = true : iszOffset = false;
 
 	}
 
@@ -633,8 +654,12 @@ void OnUpdate()
 	XMMATRIX MVP = m * v * p;
 
 	SceneConstantBuffer objConstants;
-	objConstants.AmbientDown = { ambientDownOffset,ambientDownOffset,ambientDownOffset };
-	objConstants.AmbientUp = { ambientUpOffset,ambientUpOffset,ambientUpOffset };
+	objConstants.DirLightColor = { 0.0f,1.0f,0.0f };
+	objConstants.DirToLight = { xOffset,2.0f,-2.0f };
+	objConstants.EyePosition = camera.GetPosition();
+	objConstants.diffuseColor = { 0.1f,0.1f,0.1f };
+	objConstants.specExp = 5.0f;
+	objConstants.specIntensity = 3.0f;
 	XMStoreFloat4x4(&objConstants.MVP, XMMatrixTranspose(MVP));
 	XMStoreFloat4x4(&objConstants.Model, XMMatrixTranspose(m));
 	memcpy(pCbvDataBegin, &objConstants, sizeof(objConstants));
