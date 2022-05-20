@@ -2,4 +2,7 @@
 
 *.sln
 
-build
+build/Intermediate
+build/*.exe
+build/*.pdb
+
